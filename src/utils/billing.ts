@@ -48,41 +48,48 @@ export function splitTimeSegments(
 }
 
 function findApplicableRate(time: dayjs.Dayjs, rates: Rate[]): Rate {
-  const currentDate = time.format('YYYY-MM-DD')
   const dayOfWeek = time.day()
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
+  const inValidRange = (rate: Rate): boolean => {
+    const ruleStart = dayjs(rate.validFrom).startOf('day')
+    const ruleEnd = dayjs(rate.validTo).endOf('day')
+    return time.isAfter(ruleStart) && time.isBefore(ruleEnd)
+  }
+
+  const inDateRange = (rate: Rate): boolean => {
+    const seasonStart = dayjs(rate.startTime)
+    const seasonEnd = dayjs(rate.endTime)
+    return time.isAfter(seasonStart) && time.isBefore(seasonEnd)
+  }
+
   const holidayRate = rates.find(r => {
     if (r.type !== 'holiday' || !r.isActive) return false
-    const rateStart = dayjs(r.validFrom).startOf('day')
-    const rateEnd = dayjs(r.validTo).endOf('day')
-    return time.isAfter(rateStart) && time.isBefore(rateEnd)
+    return inValidRange(r) && inDateRange(r)
   })
   if (holidayRate) return holidayRate
 
+  const peakRate = rates.find(r => {
+    if (r.type !== 'peak' || !r.isActive) return false
+    return inValidRange(r) && inDateRange(r)
+  })
+  if (peakRate && !isWeekend) return peakRate
+
   const weekendRate = rates.find(r => {
     if (r.type !== 'weekend' || !r.isActive) return false
-    const rateStart = dayjs(r.validFrom).startOf('day')
-    const rateEnd = dayjs(r.validTo).endOf('day')
-    return isWeekend && time.isAfter(rateStart) && time.isBefore(rateEnd)
+    return inValidRange(r) && isWeekend
   })
   if (weekendRate) return weekendRate
 
-  const peakRate = rates.find(r => {
-    if (r.type !== 'peak' || !r.isActive) return false
-    const rateStart = dayjs(r.validFrom).startOf('day')
-    const rateEnd = dayjs(r.validTo).endOf('day')
-    return time.isAfter(rateStart) && time.isBefore(rateEnd)
-  })
   if (peakRate) return peakRate
 
-  const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive)
+  const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive && inValidRange(r))
   return offPeakRate || {
     id: 'default',
     name: '平日标准价',
     type: 'off-peak',
-    startTime: '00:00',
-    endTime: '23:59',
+    startTime: '2000-01-01 00:00:00',
+    endTime: '2099-12-31 23:59:59',
     priceMultiplier: 1,
     isActive: true,
     validFrom: '2000-01-01',
@@ -106,14 +113,17 @@ function findNextRateChange(
   for (const rate of rates) {
     if (!rate.isActive) continue
     
-    const rateStart = dayjs(rate.validFrom).startOf('day')
-    const rateEnd = dayjs(rate.validTo).endOf('day')
+    const importantDates = [
+      dayjs(rate.startTime),
+      dayjs(rate.endTime),
+      dayjs(rate.validFrom).startOf('day'),
+      dayjs(rate.validTo).endOf('day')
+    ]
 
-    if (rateStart.isAfter(currentTime) && rateStart.isBefore(nextChange)) {
-      nextChange = rateStart
-    }
-    if (rateEnd.isAfter(currentTime) && rateEnd.isBefore(nextChange)) {
-      nextChange = rateEnd
+    for (const datePoint of importantDates) {
+      if (datePoint.isAfter(currentTime) && datePoint.isBefore(nextChange)) {
+        nextChange = datePoint
+      }
     }
   }
 

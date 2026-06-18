@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
+import { ElMessage } from 'element-plus'
 import type { Waitlist } from '@/types'
 import { saveToStorage, loadFromStorage, generateId } from '@/utils/storage'
 import { useSettingsStore } from './settings'
@@ -10,6 +11,8 @@ const STORAGE_KEY = 'waitlist'
 
 export const useWaitlistStore = defineStore('waitlist', () => {
   const waitlist = ref<Waitlist[]>(loadFromStorage(STORAGE_KEY, []))
+
+  recalculateAllQueuePositions()
 
   const activeWaitlist = computed(() => 
     waitlist.value.filter(w => ['waiting', 'notified'].includes(w.status))
@@ -30,6 +33,39 @@ export const useWaitlistStore = defineStore('waitlist', () => {
   const getWaitlistByCampsite = computed(() => (campsiteId: string) => 
     waitlist.value.filter(w => w.campsiteId === campsiteId && ['waiting', 'notified'].includes(w.status))
   )
+
+  function getQueueKey(entry: { campsiteId: string; checkInTime: string; checkOutTime: string }): string {
+    return `${entry.campsiteId}__${entry.checkInTime}__${entry.checkOutTime}`
+  }
+
+  function recalculateAllQueuePositions() {
+    const groups: Record<string, Waitlist[]> = {}
+    
+    waitlist.value.forEach(entry => {
+      if (entry.status === 'waiting' || entry.status === 'notified') {
+        const key = getQueueKey(entry)
+        if (!groups[key]) {
+          groups[key] = []
+        }
+        groups[key].push(entry)
+      }
+    })
+
+    let hasChanges = false
+    Object.values(groups).forEach(group => {
+      group.sort((a, b) => new Date(a.bookingTime).getTime() - new Date(b.bookingTime).getTime())
+      group.forEach((entry, index) => {
+        if (entry.queuePosition !== index + 1) {
+          entry.queuePosition = index + 1
+          hasChanges = true
+        }
+      })
+    })
+
+    if (hasChanges) {
+      saveToStorage(STORAGE_KEY, waitlist.value)
+    }
+  }
 
   function getQueuePosition(campsiteId: string, checkInTime: string, checkOutTime: string): number {
     const relevantWaitlist = waitlist.value.filter(w => 
@@ -53,7 +89,7 @@ export const useWaitlistStore = defineStore('waitlist', () => {
     }
 
     waitlist.value.push(newEntry)
-    saveToStorage(STORAGE_KEY, waitlist.value)
+    updateQueuePositions(entry.campsiteId, entry.checkInTime, entry.checkOutTime)
     return newEntry
   }
 
@@ -122,12 +158,19 @@ export const useWaitlistStore = defineStore('waitlist', () => {
     const index = waitlist.value.findIndex(w => w.id === id)
     if (index !== -1) {
       const entry = waitlist.value[index]
+      const wasNotified = entry.status === 'notified'
+      const campsiteId = entry.campsiteId
+      const checkInTime = entry.checkInTime
+      const checkOutTime = entry.checkOutTime
+
       waitlist.value[index].status = 'cancelled'
       saveToStorage(STORAGE_KEY, waitlist.value)
-      updateQueuePositions(entry.campsiteId, entry.checkInTime, entry.checkOutTime)
+      updateQueuePositions(campsiteId, checkInTime, checkOutTime)
 
-      if (entry.status === 'notified') {
-        notifyNextWaitlist(entry.campsiteId, entry.checkInTime, entry.checkOutTime)
+      if (wasNotified) {
+        setTimeout(() => {
+          notifyNextWaitlist(campsiteId, checkInTime, checkOutTime)
+        }, 100)
       }
     }
   }
@@ -136,9 +179,13 @@ export const useWaitlistStore = defineStore('waitlist', () => {
     const index = waitlist.value.findIndex(w => w.id === id)
     if (index !== -1) {
       const entry = waitlist.value[index]
+      const campsiteId = entry.campsiteId
+      const checkInTime = entry.checkInTime
+      const checkOutTime = entry.checkOutTime
+
       waitlist.value[index].status = 'expired'
       saveToStorage(STORAGE_KEY, waitlist.value)
-      updateQueuePositions(entry.campsiteId, entry.checkInTime, entry.checkOutTime)
+      updateQueuePositions(campsiteId, checkInTime, checkOutTime)
 
       if (window.ipcRenderer) {
         window.ipcRenderer.send('notify', 
@@ -147,7 +194,9 @@ export const useWaitlistStore = defineStore('waitlist', () => {
         )
       }
 
-      notifyNextWaitlist(entry.campsiteId, entry.checkInTime, entry.checkOutTime)
+      setTimeout(() => {
+        notifyNextWaitlist(campsiteId, checkInTime, checkOutTime)
+      }, 100)
     }
   }
 
@@ -155,7 +204,7 @@ export const useWaitlistStore = defineStore('waitlist', () => {
     const relevantEntries = waitlist.value
       .filter(w => 
         w.campsiteId === campsiteId && 
-        w.status === 'waiting' &&
+        (w.status === 'waiting' || w.status === 'notified') &&
         w.checkInTime === checkInTime &&
         w.checkOutTime === checkOutTime
       )
@@ -190,6 +239,7 @@ export const useWaitlistStore = defineStore('waitlist', () => {
           `${entry.customerName} 候补的营位当前不可用，请稍后再试`
         )
       }
+      ElMessage?.error('营位当前不可用，无法转为预订')
       return null
     }
 

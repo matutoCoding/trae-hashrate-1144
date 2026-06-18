@@ -210,16 +210,16 @@
     >
       <el-form :model="paymentForm" :rules="paymentRules" ref="paymentFormRef" label-width="100px">
         <el-form-item label="账单编号">
-          <el-input v-model="currentBill?.billNo" disabled />
+          <el-input :value="currentBill ? currentBill.billNo : ''" disabled />
         </el-form-item>
         <el-form-item label="应收金额">
-          <el-input :value="`¥${currentBill?.unpaidAmount.toFixed(2)}`" disabled />
+          <el-input :value="currentBill ? `¥${currentBill.unpaidAmount.toFixed(2)}` : '¥0.00'" disabled />
         </el-form-item>
         <el-form-item label="收款金额" prop="amount">
           <el-input-number
             v-model="paymentForm.amount"
             :min="0"
-            :max="currentBill?.unpaidAmount || 0"
+            :max="currentBill ? currentBill.unpaidAmount : 0"
             :precision="2"
             style="width: 100%"
           />
