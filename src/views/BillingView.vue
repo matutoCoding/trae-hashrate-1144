@@ -133,27 +133,19 @@
         </el-descriptions>
 
         <div class="form-section" style="margin-top: 24px;">
-          <h3 class="section-title">时段费用明细</h3>
-          <el-table :data="currentBill.timeSegments" border size="small">
-            <el-table-column prop="rateName" label="费率类型" />
-            <el-table-column label="时间段">
-              <template #default="{ row }">
-                {{ formatDate(row.startTime) }} - {{ formatDate(row.endTime) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="duration" label="天数" width="80">
-              <template #default="{ row }">{{ row.duration }}天</template>
-            </el-table-column>
-            <el-table-column label="单价" width="120">
-              <template #default="{ row }">¥{{ row.unitPrice.toFixed(2) }}/天</template>
-            </el-table-column>
-            <el-table-column label="倍率" width="100">
-              <template #default="{ row }">{{ row.rateMultiplier }}x</template>
-            </el-table-column>
-            <el-table-column label="小计" width="120">
-              <template #default="{ row }">¥{{ row.segmentAmount.toFixed(2) }}</template>
-            </el-table-column>
-          </el-table>
+          <h3 class="section-title">
+            住宿时段费用明细 <span style="font-weight: normal; font-size: 13px; color: #6b7280;">共 {{ billTotalDays }}天</span>
+          </h3>
+          <div v-for="(segment, idx) in currentBill.timeSegments" :key="idx" class="bill-segment">
+            <div class="bill-segment-head">
+              <el-tag :type="getBillRateTagType(segment.rateName)" size="small">{{ segment.rateName }}</el-tag>
+              <span class="bill-segment-amt">¥{{ segment.segmentAmount.toFixed(2) }}</span>
+            </div>
+            <div class="bill-segment-body">
+              <span class="bill-segment-time">{{ formatFullDate(segment.startTime) }} → {{ formatFullDate(segment.endTime) }}</span>
+              <span class="bill-segment-calc">{{ segment.duration }}天 × ¥{{ segment.unitPrice.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
+            </div>
+          </div>
         </div>
 
         <div class="price-breakdown">
@@ -328,6 +320,24 @@ function formatDate(dateStr: string): string {
   return dayjs(dateStr).format('YYYY-MM-DD HH:mm')
 }
 
+function formatFullDate(dateStr: string): string {
+  if (!dateStr) return '-'
+  return dayjs(dateStr).format('MM-DD HH:mm')
+}
+
+const billTotalDays = computed(() => {
+  if (!currentBill.value) return 0
+  const total = currentBill.value.timeSegments.reduce((sum, seg) => sum + seg.duration, 0)
+  return Number(total.toFixed(2))
+})
+
+function getBillRateTagType(rateName: string): string {
+  if (rateName.includes('节假日') || rateName.includes('国庆')) return 'danger'
+  if (rateName.includes('旺季')) return 'warning'
+  if (rateName.includes('周末')) return 'success'
+  return 'info'
+}
+
 function viewDetail(bill: Bill) {
   currentBill.value = bill
   detailDialogVisible.value = true
@@ -397,6 +407,41 @@ function exportExcel() {
 .filter-card {
   :deep(.el-form-item) {
     margin-bottom: 0;
+  }
+}
+
+.bill-segment {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+
+  .bill-segment-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .bill-segment-amt {
+    color: #dc2626;
+    font-weight: 600;
+  }
+
+  .bill-segment-body {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .bill-segment-calc {
+    font-family: 'Courier New', monospace;
+    color: #4b5563;
   }
 }
 </style>

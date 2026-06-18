@@ -274,10 +274,22 @@
         </div>
 
         <div class="price-breakdown" v-if="priceInfo.segments.length > 0">
-          <h4 style="margin-bottom: 12px; color: #374151;">费用明细</h4>
-          <div v-for="(segment, index) in priceInfo.segments" :key="index" class="breakdown-item">
-            <span>{{ segment.rateName }} ({{ formatDate(segment.startTime) }} - {{ formatDate(segment.endTime) }})</span>
-            <span>¥{{ segment.segmentAmount.toFixed(2) }} ({{ segment.duration }}天 × ¥{{ segment.unitPrice.toFixed(2) }})</span>
+          <h4 style="margin-bottom: 12px; color: #374151;">
+            住宿费用明细 <span style="font-weight: normal; font-size: 13px; color: #6b7280;">共 {{ totalSegmentsDays }}天</span>
+          </h4>
+          <div v-for="(segment, index) in priceInfo.segments" :key="index" class="segment-row">
+            <div class="segment-header">
+              <el-tag :type="getRateTagType(segment.rateId)" size="small">{{ segment.rateName }}</el-tag>
+              <span class="segment-amount">¥{{ segment.segmentAmount.toFixed(2) }}</span>
+            </div>
+            <div class="segment-detail">
+              <span>{{ formatFullDate(segment.startTime) }} → {{ formatFullDate(segment.endTime) }}</span>
+              <span class="segment-calc">{{ segment.duration }}天 × ¥{{ segment.unitPrice.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
+            </div>
+          </div>
+          <div class="breakdown-item" v-if="priceInfo.segments.length > 1">
+            <span>住宿合计</span>
+            <span>¥{{ accommodationOnly.toFixed(2) }}</span>
           </div>
           <div class="breakdown-item" v-if="priceInfo.equipmentAmount > 0">
             <span>装备租赁</span>
@@ -376,6 +388,7 @@ import { useCampsiteStore } from '@/stores/campsite'
 import { useBookingStore } from '@/stores/booking'
 import { useEquipmentStore } from '@/stores/equipment'
 import { useBillStore } from '@/stores/bill'
+import { useRateStore } from '@/stores/rate'
 import { calculateEquipmentRental } from '@/utils/billing'
 
 const campsiteStore = useCampsiteStore()
@@ -425,6 +438,32 @@ const priceInfo = ref<{ segments: TimeSegment[], totalAmount: number, equipmentA
 })
 
 const depositAmount = computed(() => priceInfo.value.totalAmount * 0.3)
+
+const totalSegmentsDays = computed(() => {
+  const total = priceInfo.value.segments.reduce((sum, seg) => sum + seg.duration, 0)
+  return Number(total.toFixed(2))
+})
+
+const accommodationOnly = computed(() => {
+  const total = priceInfo.value.segments.reduce((sum, seg) => sum + seg.segmentAmount, 0)
+  return Number(total.toFixed(2))
+})
+
+function getRateTagType(rateId: string): string {
+  const rateStore = useRateStore()
+  const rate = rateStore.getRateById(rateId)
+  const map: Record<string, string> = {
+    'holiday': 'danger',
+    'peak': 'warning',
+    'weekend': 'success',
+    'off-peak': 'info'
+  }
+  return rate ? (map[rate.type] || 'info') : 'info'
+}
+
+function formatFullDate(dateStr: string): string {
+  return dayjs(dateStr).format('MM-DD HH:mm')
+}
 
 const selectedEquipmentIds = ref<string[]>([])
 const equipmentQuantities = reactive<Record<string, number>>({})
@@ -724,6 +763,41 @@ onMounted(() => {
 .filter-card {
   :deep(.el-form-item) {
     margin-bottom: 0;
+  }
+}
+
+.segment-row {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+
+  .segment-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .segment-amount {
+    color: #dc2626;
+    font-weight: 600;
+  }
+
+  .segment-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .segment-calc {
+    font-family: 'Courier New', monospace;
+    color: #4b5563;
   }
 }
 </style>

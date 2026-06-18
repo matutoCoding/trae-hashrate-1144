@@ -11,20 +11,19 @@ export function splitTimeSegments(
   const totalStart = dayjs(checkInTime)
   const totalEnd = dayjs(checkOutTime)
   const totalHours = totalEnd.diff(totalStart, 'hour', true)
-  
+
   if (totalHours <= 0) {
     return segments
   }
 
   const activeRates = rates.filter(r => r.isActive)
-
   let currentTime = totalStart.clone()
 
   while (currentTime.isBefore(totalEnd)) {
     const applicableRate = findApplicableRate(currentTime, activeRates)
     const nextRateChange = findNextRateChange(currentTime, totalEnd, activeRates)
     const segmentEnd = nextRateChange.isBefore(totalEnd) ? nextRateChange : totalEnd
-    
+
     const segmentHours = segmentEnd.diff(currentTime, 'hour', true)
     const segmentDays = segmentHours / 24
     const unitPrice = priceBase * applicableRate.priceMultiplier
@@ -37,7 +36,7 @@ export function splitTimeSegments(
       rateId: applicableRate.id,
       rateName: applicableRate.name,
       rateMultiplier: applicableRate.priceMultiplier,
-      unitPrice,
+      unitPrice: Number(unitPrice.toFixed(2)),
       segmentAmount: Number(segmentAmount.toFixed(2))
     })
 
@@ -51,39 +50,40 @@ function findApplicableRate(time: dayjs.Dayjs, rates: Rate[]): Rate {
   const dayOfWeek = time.day()
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
-  const inValidRange = (rate: Rate): boolean => {
+  const ruleIsActive = (rate: Rate): boolean => {
     const ruleStart = dayjs(rate.validFrom).startOf('day')
     const ruleEnd = dayjs(rate.validTo).endOf('day')
-    return time.isAfter(ruleStart) && time.isBefore(ruleEnd)
+    return (time.isAfter(ruleStart) || time.isSame(ruleStart)) &&
+           (time.isBefore(ruleEnd) || time.isSame(ruleEnd))
   }
 
-  const inDateRange = (rate: Rate): boolean => {
+  const fallsInSeason = (rate: Rate): boolean => {
     const seasonStart = dayjs(rate.startTime)
     const seasonEnd = dayjs(rate.endTime)
-    return time.isAfter(seasonStart) && time.isBefore(seasonEnd)
+    return (time.isAfter(seasonStart) || time.isSame(seasonStart)) &&
+           time.isBefore(seasonEnd)
   }
 
   const holidayRate = rates.find(r => {
     if (r.type !== 'holiday' || !r.isActive) return false
-    return inValidRange(r) && inDateRange(r)
+    return ruleIsActive(r) && fallsInSeason(r)
   })
   if (holidayRate) return holidayRate
 
   const peakRate = rates.find(r => {
     if (r.type !== 'peak' || !r.isActive) return false
-    return inValidRange(r) && inDateRange(r)
+    return ruleIsActive(r) && fallsInSeason(r)
   })
-  if (peakRate && !isWeekend) return peakRate
 
   const weekendRate = rates.find(r => {
     if (r.type !== 'weekend' || !r.isActive) return false
-    return inValidRange(r) && isWeekend
+    return ruleIsActive(r) && isWeekend
   })
   if (weekendRate) return weekendRate
 
   if (peakRate) return peakRate
 
-  const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive && inValidRange(r))
+  const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive && ruleIsActive(r))
   return offPeakRate || {
     id: 'default',
     name: '平日标准价',
@@ -106,22 +106,22 @@ function findNextRateChange(
   let nextChange = endTime.clone()
 
   const nextMidnight = currentTime.clone().add(1, 'day').startOf('day')
-  if (nextMidnight.isAfter(currentTime) && nextMidnight.isBefore(nextChange)) {
+  if (nextMidnight.isAfter(currentTime) && (nextMidnight.isBefore(nextChange) || nextMidnight.isSame(nextChange))) {
     nextChange = nextMidnight
   }
 
   for (const rate of rates) {
     if (!rate.isActive) continue
-    
+
     const importantDates = [
       dayjs(rate.startTime),
       dayjs(rate.endTime),
       dayjs(rate.validFrom).startOf('day'),
-      dayjs(rate.validTo).endOf('day')
+      dayjs(rate.validTo).endOf('day').add(1, 'second')
     ]
 
     for (const datePoint of importantDates) {
-      if (datePoint.isAfter(currentTime) && datePoint.isBefore(nextChange)) {
+      if (datePoint.isAfter(currentTime) && (datePoint.isBefore(nextChange) || datePoint.isSame(nextChange))) {
         nextChange = datePoint
       }
     }
