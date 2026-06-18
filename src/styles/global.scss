@@ -1,0 +1,155 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.page-container {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  min-height: 100%;
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+
+    .page-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1f2937;
+      margin: 0;
+    }
+  }
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+
+  .stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 20px;
+    color: white;
+
+    &.success {
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+
+    &.warning {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    &.info {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+
+    .stat-label {
+      font-size: 14px;
+      opacity: 0.9;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+  }
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.status-tag {
+  .el-tag {
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+  }
+}
+
+.form-section {
+  margin-bottom: 24px;
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+}
+
+.price-breakdown {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+
+  .breakdown-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px dashed #e5e7eb;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &.total {
+      font-weight: 600;
+      font-size: 16px;
+      color: #3d7a35;
+    }
+  }
+}
+
+.calendar-cell {
+  padding: 4px;
+  min-height: 80px;
+
+  &.booked {
+    background: #fee2e2;
+  }
+
+  &.pending {
+    background: #fef3c7;
+  }
+
+  &.available {
+    background: #dcfce7;
+  }
+
+  .cell-date {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .cell-bookings {
+    font-size: 11px;
+    color: #6b7280;
+  }
+}
+
+:deep(.el-dialog__body) {
+  padding-top: 12px;
+}
