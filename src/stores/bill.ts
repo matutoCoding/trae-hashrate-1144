@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
 import type { Bill, TimeSegment, EquipmentRental } from '@/types'
 import { saveToStorage, loadFromStorage, generateId } from '@/utils/storage'
-import { generateBillNo, calculateTotalAmount, calculateEquipmentTotal } from '@/utils/billing'
+import { generateBillNo, calculateTotalAmount, calculateEquipmentTotal, calculateTotalDays } from '@/utils/billing'
 import { useCampsiteStore } from './campsite'
 import { useBookingStore } from './booking'
 
@@ -41,9 +41,7 @@ export const useBillStore = defineStore('bill', () => {
       booking.equipmentRentals
     )
 
-    const totalDays = Math.ceil(
-      dayjs(booking.checkOutTime).diff(dayjs(booking.checkInTime), 'hour', true) / 24
-    )
+    const totalDays = calculateTotalDays(priceInfo.segments)
 
     const accommodationAmount = calculateTotalAmount(priceInfo.segments)
     const equipmentAmount = calculateEquipmentTotal(

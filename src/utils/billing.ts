@@ -8,76 +8,81 @@ export function splitTimeSegments(
   priceBase: number
 ): TimeSegment[] {
   const segments: TimeSegment[] = []
-  let currentTime = dayjs(checkInTime)
-  const endTime = dayjs(checkOutTime)
+  const totalStart = dayjs(checkInTime)
+  const totalEnd = dayjs(checkOutTime)
+  const totalHours = totalEnd.diff(totalStart, 'hour', true)
+  
+  if (totalHours <= 0) {
+    return segments
+  }
 
-  const activeRates = rates.filter(r => r.isActive && 
-    dayjs(r.validFrom).isBefore(endTime) && 
-    dayjs(r.validTo).isAfter(currentTime))
+  const activeRates = rates.filter(r => r.isActive)
 
-  while (currentTime.isBefore(endTime)) {
+  let currentTime = totalStart.clone()
+
+  while (currentTime.isBefore(totalEnd)) {
     const applicableRate = findApplicableRate(currentTime, activeRates)
-    const nextRateChange = findNextRateChange(currentTime, endTime, activeRates)
-    const segmentEnd = nextRateChange.isBefore(endTime) ? nextRateChange : endTime
+    const nextRateChange = findNextRateChange(currentTime, totalEnd, activeRates)
+    const segmentEnd = nextRateChange.isBefore(totalEnd) ? nextRateChange : totalEnd
     
-    const duration = segmentEnd.diff(currentTime, 'hour', true)
-    const days = Math.ceil(duration / 24)
+    const segmentHours = segmentEnd.diff(currentTime, 'hour', true)
+    const segmentDays = segmentHours / 24
     const unitPrice = priceBase * applicableRate.priceMultiplier
-    const segmentAmount = unitPrice * days
+    const segmentAmount = unitPrice * segmentDays
 
     segments.push({
       startTime: currentTime.format('YYYY-MM-DD HH:mm:ss'),
       endTime: segmentEnd.format('YYYY-MM-DD HH:mm:ss'),
-      duration: days,
+      duration: Number(segmentDays.toFixed(2)),
       rateId: applicableRate.id,
       rateName: applicableRate.name,
       rateMultiplier: applicableRate.priceMultiplier,
       unitPrice,
-      segmentAmount
+      segmentAmount: Number(segmentAmount.toFixed(2))
     })
 
-    currentTime = segmentEnd
+    currentTime = segmentEnd.clone()
   }
 
   return segments
 }
 
 function findApplicableRate(time: dayjs.Dayjs, rates: Rate[]): Rate {
-  const dateStr = time.format('YYYY-MM-DD')
+  const currentDate = time.format('YYYY-MM-DD')
   const dayOfWeek = time.day()
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
-  for (const rate of rates) {
-    const rateStart = dayjs(rate.validFrom)
-    const rateEnd = dayjs(rate.validTo)
-    
-    if (time.isAfter(rateStart) && time.isBefore(rateEnd)) {
-      if (rate.type === 'holiday') {
-        const rateDateStart = dayjs(rate.startTime)
-        const rateDateEnd = dayjs(rate.endTime)
-        if (time.isAfter(rateDateStart) && time.isBefore(rateDateEnd)) {
-          return rate
-        }
-      } else if (rate.type === 'weekend' && isWeekend) {
-        return rate
-      } else if (rate.type === 'peak') {
-        const seasonStart = dayjs(rate.startTime)
-        const seasonEnd = dayjs(rate.endTime)
-        const currentDate = dayjs(dateStr)
-        if (currentDate.isAfter(seasonStart) && currentDate.isBefore(seasonEnd)) {
-          return rate
-        }
-      }
-    }
-  }
+  const holidayRate = rates.find(r => {
+    if (r.type !== 'holiday' || !r.isActive) return false
+    const rateStart = dayjs(r.validFrom).startOf('day')
+    const rateEnd = dayjs(r.validTo).endOf('day')
+    return time.isAfter(rateStart) && time.isBefore(rateEnd)
+  })
+  if (holidayRate) return holidayRate
 
-  const offPeakRate = rates.find(r => r.type === 'off-peak')
+  const weekendRate = rates.find(r => {
+    if (r.type !== 'weekend' || !r.isActive) return false
+    const rateStart = dayjs(r.validFrom).startOf('day')
+    const rateEnd = dayjs(r.validTo).endOf('day')
+    return isWeekend && time.isAfter(rateStart) && time.isBefore(rateEnd)
+  })
+  if (weekendRate) return weekendRate
+
+  const peakRate = rates.find(r => {
+    if (r.type !== 'peak' || !r.isActive) return false
+    const rateStart = dayjs(r.validFrom).startOf('day')
+    const rateEnd = dayjs(r.validTo).endOf('day')
+    return time.isAfter(rateStart) && time.isBefore(rateEnd)
+  })
+  if (peakRate) return peakRate
+
+  const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive)
   return offPeakRate || {
     id: 'default',
     name: '平日标准价',
     type: 'off-peak',
-    startTime: '',
-    endTime: '',
+    startTime: '00:00',
+    endTime: '23:59',
     priceMultiplier: 1,
     isActive: true,
     validFrom: '2000-01-01',
@@ -91,11 +96,18 @@ function findNextRateChange(
   endTime: dayjs.Dayjs,
   rates: Rate[]
 ): dayjs.Dayjs {
-  let nextChange = endTime
+  let nextChange = endTime.clone()
+
+  const nextMidnight = currentTime.clone().add(1, 'day').startOf('day')
+  if (nextMidnight.isAfter(currentTime) && nextMidnight.isBefore(nextChange)) {
+    nextChange = nextMidnight
+  }
 
   for (const rate of rates) {
-    const rateStart = dayjs(rate.startTime)
-    const rateEnd = dayjs(rate.endTime)
+    if (!rate.isActive) continue
+    
+    const rateStart = dayjs(rate.validFrom).startOf('day')
+    const rateEnd = dayjs(rate.validTo).endOf('day')
 
     if (rateStart.isAfter(currentTime) && rateStart.isBefore(nextChange)) {
       nextChange = rateStart
@@ -105,16 +117,17 @@ function findNextRateChange(
     }
   }
 
-  const nextDay = currentTime.add(1, 'day').startOf('day')
-  if (nextDay.isAfter(currentTime) && nextDay.isBefore(nextChange)) {
-    nextChange = nextDay
-  }
-
   return nextChange
 }
 
 export function calculateTotalAmount(segments: TimeSegment[]): number {
-  return segments.reduce((sum, seg) => sum + seg.segmentAmount, 0)
+  const total = segments.reduce((sum, seg) => sum + seg.segmentAmount, 0)
+  return Number(total.toFixed(2))
+}
+
+export function calculateTotalDays(segments: TimeSegment[]): number {
+  const total = segments.reduce((sum, seg) => sum + seg.duration, 0)
+  return Number(total.toFixed(2))
 }
 
 export function calculateEquipmentTotal(
@@ -122,11 +135,12 @@ export function calculateEquipmentTotal(
   checkInTime: string,
   checkOutTime: string
 ): number {
-  const days = Math.ceil(dayjs(checkOutTime).diff(dayjs(checkInTime), 'hour', true) / 24)
-  return rentals.reduce((sum, rental) => {
+  const totalHours = dayjs(checkOutTime).diff(dayjs(checkInTime), 'hour', true)
+  const days = Math.max(1, totalHours / 24)
+  return Number(rentals.reduce((sum, rental) => {
     const daysToUse = rental.days || days
     return sum + rental.unitPrice * rental.quantity * daysToUse
-  }, 0)
+  }, 0).toFixed(2))
 }
 
 export function calculateEquipmentRental(
@@ -135,14 +149,15 @@ export function calculateEquipmentRental(
   checkInTime: string,
   checkOutTime: string
 ): EquipmentRental {
-  const days = Math.ceil(dayjs(checkOutTime).diff(dayjs(checkInTime), 'hour', true) / 24)
+  const totalHours = dayjs(checkOutTime).diff(dayjs(checkInTime), 'hour', true)
+  const days = Math.max(1, Number((totalHours / 24).toFixed(2)))
   return {
     equipmentId: equipment.id,
     equipmentName: equipment.name,
     quantity,
     unitPrice: equipment.price,
     days,
-    totalAmount: equipment.price * quantity * days
+    totalAmount: Number((equipment.price * quantity * days).toFixed(2))
   }
 }
 

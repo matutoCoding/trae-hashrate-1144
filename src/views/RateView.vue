@@ -46,7 +46,7 @@
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-switch
-              v-model="row.isActive"
+              :model-value="row.isActive"
               @change="toggleStatus(row.id)"
               active-text="启用"
               inactive-text="禁用"
