@@ -39,11 +39,17 @@
         <el-table-column label="租金" width="120">
           <template #default="{ row }">¥{{ row.price }}/{{ row.unit }}/天</template>
         </el-table-column>
-        <el-table-column label="库存" width="120">
+        <el-table-column label="可用库存" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.stock <= 5 ? 'danger' : row.stock <= 10 ? 'warning' : 'success'">
-              {{ row.stock }}
+            <el-tag :type="equipmentStore.getAvailableStock(row.id) <= 5 ? 'danger' : equipmentStore.getAvailableStock(row.id) <= 10 ? 'warning' : 'success'">
+              {{ equipmentStore.getAvailableStock(row.id) }} / {{ row.stock }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="已占用" width="100">
+          <template #default="{ row }">
+            <el-tag type="info" v-if="row.stockOccupied > 0">{{ row.stockOccupied }}</el-tag>
+            <span v-else style="color: #9ca3af;">-</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -162,9 +168,11 @@
       width="500px"
       :close-on-click-modal="false"
     >
-      <el-descriptions :column="1" border v-if="currentEquipment" style="margin-bottom: 16px;">
+      <el-descriptions :column="2" border v-if="currentEquipment" style="margin-bottom: 16px;">
         <el-descriptions-item label="装备名称">{{ currentEquipment.name }}</el-descriptions-item>
-        <el-descriptions-item label="当前库存">{{ currentEquipment.stock }}</el-descriptions-item>
+        <el-descriptions-item label="总库存">{{ currentEquipment.stock }}</el-descriptions-item>
+        <el-descriptions-item label="已占用">{{ currentEquipment.stockOccupied || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="可用库存">{{ equipmentStore.getAvailableStock(currentEquipment.id) }}</el-descriptions-item>
       </el-descriptions>
       <el-form :model="stockForm" :rules="stockRules" ref="stockFormRef" label-width="100px">
         <el-form-item label="调整数量" prop="change">
@@ -216,6 +224,7 @@ const form = reactive({
   unit: '个',
   price: 0,
   stock: 0,
+  stockOccupied: 0,
   status: 'available' as Equipment['status'],
   description: ''
 })
@@ -270,6 +279,7 @@ function editEquipment(equipment: Equipment) {
     unit: equipment.unit,
     price: equipment.price,
     stock: equipment.stock,
+    stockOccupied: equipment.stockOccupied || 0,
     status: equipment.status,
     description: equipment.description
   })

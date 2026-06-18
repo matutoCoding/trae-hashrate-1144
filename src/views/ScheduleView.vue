@@ -66,7 +66,80 @@
     </el-card>
 
     <el-card style="margin-top: 16px">
-      <el-table :data="filteredBookings" v-loading="loading" stripe>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <el-tabs v-model="viewMode" style="margin-bottom: 0;">
+          <el-tab-pane label="列表视图" name="list" />
+          <el-tab-pane label="日历视图" name="calendar" />
+        </el-tabs>
+        <div v-if="viewMode === 'calendar'" style="display: flex; gap: 8px; align-items: center;">
+          <el-button-group>
+            <el-button size="small" @click="changeWeek(-1)">上一周</el-button>
+            <el-button size="small" @click="goToToday">今天</el-button>
+            <el-button size="small" @click="changeWeek(1)">下一周</el-button>
+          </el-button-group>
+          <span style="font-weight: 600; color: #374151;">{{ weekLabel }}</span>
+        </div>
+      </div>
+
+      <div v-if="viewMode === 'calendar'" class="calendar-view">
+        <div class="calendar-header">
+          <div class="calendar-cell calendar-corner">营位 \ 日期</div>
+          <div 
+            v-for="date in calendarDates" 
+            :key="date" 
+            class="calendar-cell calendar-date-header"
+            :class="{ 'calendar-today': isToday(date) }"
+          >
+            <div class="calendar-day-name">{{ getDayName(date) }}</div>
+            <div class="calendar-day-num">{{ getDayNum(date) }}</div>
+          </div>
+        </div>
+        <div class="calendar-body">
+          <div v-for="campsite in calendarCampsites" :key="campsite.id" class="calendar-row">
+            <div class="calendar-cell calendar-campsite">{{ campsite.name }}</div>
+            <div 
+              v-for="date in calendarDates" 
+              :key="`${campsite.id}-${date}`" 
+              class="calendar-cell calendar-day-cell"
+              :class="getCellStatusClass(campsite.id, date)"
+              @click="handleCellClick(campsite.id, date)"
+            >
+              <div v-if="getCellBookings(campsite.id, date).length > 0" class="cell-bookings">
+                <div 
+                  v-for="booking in getCellBookings(campsite.id, date).slice(0, 2)" 
+                  :key="booking.id"
+                  class="cell-booking-item"
+                  :class="`booking-${booking.status}`"
+                  @click.stop="viewDetail(booking)"
+                >
+                  <span class="cell-booking-name">{{ booking.customerName }}</span>
+                  <span class="cell-booking-time">{{ formatTimeRange(booking.checkInTime, booking.checkOutTime) }}</span>
+                </div>
+                <div 
+                  v-if="getCellBookings(campsite.id, date).length > 2" 
+                  class="cell-booking-more"
+                >
+                  +{{ getCellBookings(campsite.id, date).length - 2 }} 更多
+                </div>
+              </div>
+              <div v-else class="cell-empty" @click.stop="quickCreateBooking(campsite.id, date)">
+                <el-icon><Plus /></el-icon>
+                <span>空</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="calendar-legend" style="margin-top: 16px; display: flex; gap: 20px; padding: 12px; background: #f9fafb; border-radius: 6px;">
+          <div class="legend-item"><span class="legend-dot legend-available"></span>空闲</div>
+          <div class="legend-item"><span class="legend-dot legend-pending"></span>待确认</div>
+          <div class="legend-item"><span class="legend-dot legend-confirmed"></span>已确认</div>
+          <div class="legend-item"><span class="legend-dot legend-checkedin"></span>已入住</div>
+          <div class="legend-item"><span class="legend-dot legend-occupied"></span>已占用</div>
+        </div>
+      </div>
+
+      <div v-if="viewMode === 'list'">
+        <el-table :data="filteredBookings" v-loading="loading" stripe>
         <el-table-column prop="id" label="预订编号" width="120" />
         <el-table-column label="营位" width="140">
           <template #default="{ row }">
@@ -138,6 +211,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
     </el-card>
 
     <el-dialog
@@ -284,7 +358,7 @@
             </div>
             <div class="segment-detail">
               <span>{{ formatFullDate(segment.startTime) }} → {{ formatFullDate(segment.endTime) }}</span>
-              <span class="segment-calc">{{ segment.duration }}天 × ¥{{ segment.unitPrice.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
+              <span class="segment-calc">{{ segment.duration }}天 × ¥{{ segment.priceBase.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
             </div>
           </div>
           <div class="breakdown-item" v-if="priceInfo.segments.length > 1">
@@ -330,13 +404,19 @@
         <el-table-column prop="price" label="租金(元/天)" width="120">
           <template #default="{ row }">¥{{ row.price }}</template>
         </el-table-column>
-        <el-table-column prop="stock" label="库存" width="80" />
+        <el-table-column label="可用库存" width="120">
+          <template #default="{ row }">
+            <span :class="{ 'text-red-600': equipmentStore.getAvailableStock(row.id) <= 3 }">
+              {{ equipmentStore.getAvailableStock(row.id) }} / {{ row.stock }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column label="租赁数量" width="150">
           <template #default="{ row }">
             <el-input-number
               v-model="equipmentQuantities[row.id]"
               :min="1"
-              :max="row.stock"
+              :max="equipmentStore.getAvailableStock(row.id)"
               size="small"
               :disabled="!selectedEquipmentIds.includes(row.id)"
             />
@@ -402,6 +482,9 @@ const equipmentDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const currentBooking = ref<Booking | null>(null)
 const bookingFormRef = ref<FormInstance>()
+
+const viewMode = ref('list')
+const calendarStartDate = ref(dayjs().startOf('week'))
 
 const filterForm = reactive({
   dateRange: [] as string[],
@@ -516,6 +599,110 @@ const todayRevenue = computed(() => {
   const today = dayjs().format('YYYY-MM-DD')
   return billStore.calculateDailyRevenue(today)
 })
+
+const calendarDates = computed(() => {
+  const dates: string[] = []
+  for (let i = 0; i < 7; i++) {
+    dates.push(calendarStartDate.value.add(i, 'day').format('YYYY-MM-DD'))
+  }
+  return dates
+})
+
+const weekLabel = computed(() => {
+  const start = calendarStartDate.value.format('YYYY年MM月DD日')
+  const end = calendarStartDate.value.add(6, 'day').format('MM月DD日')
+  return `${start} - ${end}`
+})
+
+const calendarCampsites = computed(() => {
+  if (filterForm.type) {
+    return campsiteStore.campsites.filter(c => c.type === filterForm.type && c.status === 'available')
+  }
+  return campsiteStore.campsites.filter(c => c.status === 'available')
+})
+
+function getDayName(dateStr: string): string {
+  const names = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return names[dayjs(dateStr).day()]
+}
+
+function getDayNum(dateStr: string): string {
+  return dayjs(dateStr).format('MM/DD')
+}
+
+function isToday(dateStr: string): boolean {
+  return dayjs(dateStr).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD')
+}
+
+function changeWeek(direction: number) {
+  calendarStartDate.value = calendarStartDate.value.add(direction * 7, 'day')
+}
+
+function goToToday() {
+  calendarStartDate.value = dayjs().startOf('week')
+}
+
+function getCellBookings(campsiteId: string, dateStr: string): Booking[] {
+  const dayStart = dayjs(dateStr).startOf('day')
+  const dayEnd = dayjs(dateStr).endOf('day')
+  
+  return bookingStore.bookings.filter(b => {
+    if (b.campsiteId !== campsiteId) return false
+    if (b.status === 'cancelled' || b.status === 'expired') return false
+    
+    const checkIn = dayjs(b.checkInTime)
+    const checkOut = dayjs(b.checkOutTime)
+    
+    return (checkIn.isBefore(dayEnd) || checkIn.isSame(dayEnd)) && 
+           (checkOut.isAfter(dayStart) || checkOut.isSame(dayStart))
+  })
+}
+
+function getCellStatusClass(campsiteId: string, dateStr: string): string {
+  const bookings = getCellBookings(campsiteId, dateStr)
+  if (bookings.length === 0) return 'cell-available'
+  
+  const hasCheckedIn = bookings.some(b => b.status === 'checked-in')
+  const hasPending = bookings.some(b => b.status === 'pending')
+  const hasConfirmed = bookings.some(b => b.status === 'confirmed')
+  
+  if (hasCheckedIn) return 'cell-checkedin'
+  if (hasPending) return 'cell-pending'
+  if (hasConfirmed) return 'cell-confirmed'
+  return 'cell-occupied'
+}
+
+function formatTimeRange(start: string, end: string): string {
+  return `${dayjs(start).format('HH:mm')}-${dayjs(end).format('HH:mm')}`
+}
+
+function handleCellClick(campsiteId: string, dateStr: string) {
+  const bookings = getCellBookings(campsiteId, dateStr)
+  if (bookings.length > 0) {
+    viewDetail(bookings[0])
+  } else {
+    quickCreateBooking(campsiteId, dateStr)
+  }
+}
+
+function quickCreateBooking(campsiteId: string, dateStr: string) {
+  const defaultCheckIn = dayjs(dateStr).hour(14).minute(0).second(0)
+  const defaultCheckOut = defaultCheckIn.add(1, 'day')
+  
+  bookingForm.campsiteId = campsiteId
+  bookingForm.checkInTime = defaultCheckIn.format('YYYY-MM-DD HH:mm:ss')
+  bookingForm.checkOutTime = defaultCheckOut.format('YYYY-MM-DD HH:mm:ss')
+  bookingForm.customerName = ''
+  bookingForm.customerPhone = ''
+  bookingForm.customerIdCard = ''
+  bookingForm.peopleCount = 1
+  bookingForm.expectedArrivalTime = defaultCheckIn.format('YYYY-MM-DD HH:mm:ss')
+  bookingForm.equipmentRentals = []
+  bookingForm.notes = ''
+  
+  calculatePrice()
+  bookingDialogVisible.value = true
+}
 
 function getCampsiteName(id: string): string {
   const campsite = campsiteStore.getCampsiteById(id)
@@ -683,6 +870,11 @@ async function submitBooking() {
     notes: bookingForm.notes
   })
 
+  if (!booking) {
+    ElMessage.error('所选装备库存不足，请调整租赁数量')
+    return
+  }
+
   ElMessage.success('预订创建成功')
   bookingDialogVisible.value = false
 }
@@ -798,6 +990,199 @@ onMounted(() => {
   .segment-calc {
     font-family: 'Courier New', monospace;
     color: #4b5563;
+  }
+}
+
+.calendar-view {
+  overflow-x: auto;
+
+  .calendar-header, .calendar-row {
+    display: flex;
+  }
+
+  .calendar-cell {
+    min-width: 120px;
+    min-height: 80px;
+    border: 1px solid #e5e7eb;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .calendar-corner {
+    min-width: 120px;
+    background: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .calendar-date-header {
+    background: #f9fafb;
+    font-weight: 600;
+    min-height: 60px;
+  }
+
+  .calendar-today {
+    background: #eff6ff;
+  }
+
+  .calendar-day-name {
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .calendar-day-num {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1f2937;
+  }
+
+  .calendar-campsite {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+    justify-content: center;
+  }
+
+  .calendar-day-cell {
+    cursor: pointer;
+    padding: 4px;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .cell-available {
+    background: #f0fdf4;
+  }
+
+  .cell-pending {
+    background: #fef3c7;
+  }
+
+  .cell-confirmed {
+    background: #dbeafe;
+  }
+
+  .cell-checkedin {
+    background: #bbf7d0;
+  }
+
+  .cell-occupied {
+    background: #fee2e2;
+  }
+
+  .cell-bookings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .cell-booking-item {
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+
+    &.booking-pending {
+      background: #fcd34d;
+      color: #92400e;
+    }
+
+    &.booking-confirmed {
+      background: #93c5fd;
+      color: #1e40af;
+    }
+
+    &.booking-checked-in {
+      background: #4ade80;
+      color: #166534;
+    }
+
+    &.booking-checked-out {
+      background: #d1d5db;
+      color: #374151;
+    }
+  }
+
+  .cell-booking-name {
+    display: block;
+    font-weight: 600;
+  }
+
+  .cell-booking-time {
+    display: block;
+    font-size: 10px;
+    opacity: 0.8;
+  }
+
+  .cell-booking-more {
+    font-size: 11px;
+    color: #6b7280;
+    text-align: center;
+    padding: 2px;
+  }
+
+  .cell-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #15803d;
+    font-size: 12px;
+    cursor: pointer;
+
+    &:hover {
+      color: #166534;
+    }
+
+    .el-icon {
+      font-size: 20px;
+      margin-bottom: 2px;
+    }
+  }
+
+  .calendar-legend {
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #374151;
+    }
+
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+
+    .legend-available {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+    }
+
+    .legend-pending {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+    }
+
+    .legend-confirmed {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+    }
+
+    .legend-checkedin {
+      background: #bbf7d0;
+      border: 1px solid #4ade80;
+    }
+
+    .legend-occupied {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+    }
   }
 }
 </style>

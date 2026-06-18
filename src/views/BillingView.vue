@@ -143,7 +143,7 @@
             </div>
             <div class="bill-segment-body">
               <span class="bill-segment-time">{{ formatFullDate(segment.startTime) }} → {{ formatFullDate(segment.endTime) }}</span>
-              <span class="bill-segment-calc">{{ segment.duration }}天 × ¥{{ segment.unitPrice.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
+              <span class="bill-segment-calc">{{ segment.duration }}天 × ¥{{ segment.priceBase.toFixed(2) }}/天 × {{ segment.rateMultiplier }}倍</span>
             </div>
           </div>
         </div>
@@ -175,7 +175,22 @@
           </div>
         </div>
 
-        <div v-if="currentBill.paymentMethod">
+        <div class="form-section" style="margin-top: 24px;" v-if="currentBill.payments && currentBill.payments.length > 0">
+          <h3 class="section-title">收款流水记录 (共 {{ currentBill.payments.length }} 笔)</h3>
+          <el-table :data="currentBill.payments" border size="small">
+            <el-table-column label="序号" width="70" type="index" />
+            <el-table-column prop="amount" label="金额" width="120">
+              <template #default="{ row }">¥{{ row.amount.toFixed(2) }}</template>
+            </el-table-column>
+            <el-table-column prop="paymentMethod" label="支付方式" width="120" />
+            <el-table-column label="收款时间" width="180">
+              <template #default="{ row }">{{ formatDate(row.paymentTime) }}</template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" />
+          </el-table>
+        </div>
+
+        <div v-if="currentBill.paymentMethod && (!currentBill.payments || currentBill.payments.length === 0)">
           <el-descriptions :column="2" border style="margin-top: 16px;">
             <el-descriptions-item label="支付方式">{{ currentBill.paymentMethod }}</el-descriptions-item>
             <el-descriptions-item label="支付时间">{{ formatDate(currentBill.paymentTime || '') }}</el-descriptions-item>
@@ -224,6 +239,14 @@
             <el-option label="银行卡" value="银行卡" />
           </el-select>
         </el-form-item>
+        <el-form-item label="备注">
+          <el-input
+            v-model="paymentForm.remark"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入收款备注"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="paymentDialogVisible = false">取消</el-button>
@@ -255,7 +278,8 @@ const filterForm = reactive({
 
 const paymentForm = reactive({
   amount: 0,
-  paymentMethod: ''
+  paymentMethod: '',
+  remark: ''
 })
 
 const paymentRules: FormRules = {
@@ -359,7 +383,8 @@ async function confirmPayment() {
   const updatedBill = billStore.addPayment(
     currentBill.value.id,
     paymentForm.amount,
-    paymentForm.paymentMethod
+    paymentForm.paymentMethod,
+    paymentForm.remark
   )
 
   if (updatedBill) {
@@ -379,7 +404,7 @@ function resetFilter() {
 }
 
 function exportExcel() {
-  const exportData = filteredBills.value.map(bill => ({
+  const billExportData = filteredBills.value.map(bill => ({
     '账单编号': bill.billNo,
     '客户姓名': bill.customerName,
     '营位': bill.campsiteName,
@@ -395,9 +420,32 @@ function exportExcel() {
     '开单时间': formatDate(bill.issueTime)
   }))
 
+  const paymentExportData: any[] = []
+  filteredBills.value.forEach(bill => {
+    if (bill.payments && bill.payments.length > 0) {
+      bill.payments.forEach(payment => {
+        paymentExportData.push({
+          '账单编号': bill.billNo,
+          '客户姓名': bill.customerName,
+          '营位': bill.campsiteName,
+          '收款金额': payment.amount,
+          '支付方式': payment.paymentMethod,
+          '收款时间': formatDate(payment.paymentTime),
+          '备注': payment.remark
+        })
+      })
+    }
+  })
+
   const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.json_to_sheet(exportData)
-  XLSX.utils.book_append_sheet(wb, ws, '账单列表')
+  const ws1 = XLSX.utils.json_to_sheet(billExportData)
+  XLSX.utils.book_append_sheet(wb, ws1, '账单列表')
+  
+  if (paymentExportData.length > 0) {
+    const ws2 = XLSX.utils.json_to_sheet(paymentExportData)
+    XLSX.utils.book_append_sheet(wb, ws2, '收款流水')
+  }
+  
   XLSX.writeFile(wb, `账单导出_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
   ElMessage.success('导出成功')
 }

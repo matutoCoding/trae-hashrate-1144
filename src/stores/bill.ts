@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import type { Bill, TimeSegment, EquipmentRental } from '@/types'
+import type { Bill, TimeSegment, EquipmentRental, Payment } from '@/types'
 import { saveToStorage, loadFromStorage, generateId } from '@/utils/storage'
 import { generateBillNo, calculateTotalAmount, calculateEquipmentTotal, calculateTotalDays } from '@/utils/billing'
 import { useCampsiteStore } from './campsite'
@@ -23,6 +23,43 @@ export const useBillStore = defineStore('bill', () => {
   const unpaidBills = computed(() => 
     bills.value.filter(b => b.status !== 'paid')
   )
+
+  function migrateBills() {
+    let changed = false
+    bills.value.forEach(bill => {
+      if (!bill.payments) {
+        bill.payments = []
+        if (bill.paymentMethod && bill.paidAmount > 0) {
+          bill.payments.push({
+            id: generateId(),
+            billId: bill.id,
+            amount: bill.paidAmount,
+            paymentMethod: bill.paymentMethod,
+            paymentTime: bill.paymentTime || bill.issueTime,
+            remark: '历史收款'
+          })
+        }
+        changed = true
+      }
+      if (bill.timeSegments) {
+        bill.timeSegments.forEach(seg => {
+          if (seg.priceBase === undefined) {
+            if (seg.rateMultiplier && seg.unitPrice) {
+              seg.priceBase = Number((seg.unitPrice / seg.rateMultiplier).toFixed(2))
+            } else {
+              seg.priceBase = seg.unitPrice
+            }
+            changed = true
+          }
+        })
+      }
+    })
+    if (changed) {
+      saveToStorage(STORAGE_KEY, bills.value)
+    }
+  }
+
+  migrateBills()
 
   function createBill(bookingId: string): Bill | null {
     const bookingStore = useBookingStore()
@@ -69,7 +106,19 @@ export const useBillStore = defineStore('bill', () => {
       unpaidAmount: accommodationAmount + equipmentAmount - booking.paidAmount,
       status: booking.paidAmount >= (accommodationAmount + equipmentAmount) ? 'paid' : 
               booking.paidAmount > 0 ? 'partial' : 'unpaid',
+      payments: [],
       notes: ''
+    }
+
+    if (booking.paidAmount > 0) {
+      bill.payments.push({
+        id: generateId(),
+        billId: bill.id,
+        amount: booking.paidAmount,
+        paymentMethod: '定金',
+        paymentTime: booking.bookingTime,
+        remark: '预订定金'
+      })
     }
 
     bills.value.push(bill)
@@ -99,16 +148,27 @@ export const useBillStore = defineStore('bill', () => {
       } else {
         bill.status = 'unpaid'
       }
-      bill.unpaidAmount = bill.totalAmount - bill.paidAmount
+      bill.unpaidAmount = Number((bill.totalAmount - bill.paidAmount).toFixed(2))
     }
   }
 
-  function addPayment(billId: string, amount: number, paymentMethod: string) {
+  function addPayment(billId: string, amount: number, paymentMethod: string, remark: string = '') {
     const index = bills.value.findIndex(b => b.id === billId)
     if (index !== -1) {
-      bills.value[index].paidAmount += amount
+      const payment: Payment = {
+        id: generateId(),
+        billId,
+        amount: Number(amount.toFixed(2)),
+        paymentMethod,
+        paymentTime: new Date().toISOString(),
+        remark
+      }
+
+      bills.value[index].paidAmount = Number((bills.value[index].paidAmount + amount).toFixed(2))
       bills.value[index].paymentMethod = paymentMethod
-      bills.value[index].paymentTime = new Date().toISOString()
+      bills.value[index].paymentTime = payment.paymentTime
+      bills.value[index].payments.push(payment)
+      
       updateBillStatus(billId)
       saveToStorage(STORAGE_KEY, bills.value)
 
@@ -147,12 +207,17 @@ export const useBillStore = defineStore('bill', () => {
     const dayStart = dayjs(date).startOf('day')
     const dayEnd = dayjs(date).endOf('day')
     
-    const dayBills = bills.value.filter(b => {
-      const paidTime = b.paymentTime ? dayjs(b.paymentTime) : null
-      return paidTime && paidTime.isAfter(dayStart) && paidTime.isBefore(dayEnd)
+    let total = 0
+    bills.value.forEach(bill => {
+      bill.payments.forEach(payment => {
+        const paidTime = dayjs(payment.paymentTime)
+        if (paidTime.isAfter(dayStart) && paidTime.isBefore(dayEnd)) {
+          total += payment.amount
+        }
+      })
     })
 
-    return dayBills.reduce((sum, b) => sum + b.paidAmount, 0)
+    return Number(total.toFixed(2))
   }
 
   return {

@@ -8,6 +8,7 @@ import { useCampsiteStore } from './campsite'
 import { useRateStore } from './rate'
 import { useSettingsStore } from './settings'
 import { useWaitlistStore } from './waitlist'
+import { useEquipmentStore } from './equipment'
 
 const STORAGE_KEY = 'bookings'
 
@@ -89,13 +90,25 @@ export const useBookingStore = defineStore('booking', () => {
     return { segments, totalAmount, equipmentAmount }
   }
 
-  function createBooking(booking: Omit<Booking, 'id' | 'bookingTime' | 'status' | 'equipmentRentals'> & { equipmentRentals?: EquipmentRental[] }) {
+  function createBooking(booking: Omit<Booking, 'id' | 'bookingTime' | 'status' | 'equipmentRentals' | 'depositAmount' | 'totalAmount' | 'paidAmount'> & { equipmentRentals?: EquipmentRental[] }) {
     const settingsStore = useSettingsStore()
+    const equipmentStore = useEquipmentStore()
+    const rentals = booking.equipmentRentals || []
+
+    if (rentals.length > 0) {
+      const stockOk = equipmentStore.batchOccupyStock(
+        rentals.map(r => ({ equipmentId: r.equipmentId, quantity: r.quantity }))
+      )
+      if (!stockOk) {
+        return null
+      }
+    }
+
     const priceInfo = calculateBookingPrice(
       booking.campsiteId,
       booking.checkInTime,
       booking.checkOutTime,
-      booking.equipmentRentals || []
+      rentals
     )
 
     const depositAmount = priceInfo.totalAmount * settingsStore.settings.defaultDepositRate
@@ -108,7 +121,7 @@ export const useBookingStore = defineStore('booking', () => {
       totalAmount: priceInfo.totalAmount,
       depositAmount,
       paidAmount: 0,
-      equipmentRentals: booking.equipmentRentals || []
+      equipmentRentals: rentals
     }
 
     bookings.value.push(newBooking)
@@ -140,9 +153,21 @@ export const useBookingStore = defineStore('booking', () => {
   function checkOutBooking(id: string) {
     const index = bookings.value.findIndex(b => b.id === id)
     if (index !== -1) {
+      const booking = bookings.value[index]
       bookings.value[index].status = 'checked-out'
       saveToStorage(STORAGE_KEY, bookings.value)
       cancelAutoRelease(id)
+      
+      releaseBookingEquipment(booking)
+    }
+  }
+
+  function releaseBookingEquipment(booking: Booking) {
+    if (booking.equipmentRentals && booking.equipmentRentals.length > 0) {
+      const equipmentStore = useEquipmentStore()
+      equipmentStore.batchReleaseStock(
+        booking.equipmentRentals.map(r => ({ equipmentId: r.equipmentId, quantity: r.quantity }))
+      )
     }
   }
 
@@ -153,6 +178,8 @@ export const useBookingStore = defineStore('booking', () => {
       bookings.value[index].status = 'cancelled'
       saveToStorage(STORAGE_KEY, bookings.value)
       cancelAutoRelease(id)
+
+      releaseBookingEquipment(booking)
 
       const waitlistStore = useWaitlistStore()
       waitlistStore.notifyNextWaitlist(booking.campsiteId, booking.checkInTime, booking.checkOutTime)
@@ -165,6 +192,8 @@ export const useBookingStore = defineStore('booking', () => {
       const booking = bookings.value[index]
       bookings.value[index].status = 'expired'
       saveToStorage(STORAGE_KEY, bookings.value)
+
+      releaseBookingEquipment(booking)
 
       if (window.ipcRenderer) {
         window.ipcRenderer.send('notify', '预订已超时', `${booking.customerName} 的预订因超时未到已自动释放`)

@@ -36,6 +36,7 @@ export function splitTimeSegments(
       rateId: applicableRate.id,
       rateName: applicableRate.name,
       rateMultiplier: applicableRate.priceMultiplier,
+      priceBase: Number(priceBase.toFixed(2)),
       unitPrice: Number(unitPrice.toFixed(2)),
       segmentAmount: Number(segmentAmount.toFixed(2))
     })
@@ -79,8 +80,12 @@ function findApplicableRate(time: dayjs.Dayjs, rates: Rate[]): Rate {
     if (r.type !== 'weekend' || !r.isActive) return false
     return ruleIsActive(r) && isWeekend
   })
-  if (weekendRate) return weekendRate
 
+  if (isWeekend && peakRate && weekendRate) {
+    return peakRate.priceMultiplier >= weekendRate.priceMultiplier ? peakRate : weekendRate
+  }
+
+  if (weekendRate) return weekendRate
   if (peakRate) return peakRate
 
   const offPeakRate = rates.find(r => r.type === 'off-peak' && r.isActive && ruleIsActive(r))

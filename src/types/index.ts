@@ -67,8 +67,18 @@ export interface TimeSegment {
   rateId: string
   rateName: string
   rateMultiplier: number
+  priceBase: number
   unitPrice: number
   segmentAmount: number
+}
+
+export interface Payment {
+  id: string
+  billId: string
+  amount: number
+  paymentMethod: string
+  paymentTime: string
+  remark: string
 }
 
 export interface Bill {
@@ -91,6 +101,7 @@ export interface Bill {
   status: 'unpaid' | 'partial' | 'paid'
   paymentMethod?: string
   paymentTime?: string
+  payments: Payment[]
   notes: string
 }
 
@@ -101,6 +112,7 @@ export interface Equipment {
   unit: string
   price: number
   stock: number
+  stockOccupied: number
   status: 'available' | 'unavailable'
   description: string
 }
